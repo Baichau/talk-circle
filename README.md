@@ -15,9 +15,11 @@ chooses any topic, question, and next speaker.
 3. Put them in `.env` as VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.
 
 Each player publishes their name and the shared game state to Realtime Presence on `talk-circle:<code>`.
-Active players receive updates and late joiners receive the current state. Room state exists only while
-players are connected; custom codes are checked against active rooms and can be reused after everyone
-leaves. Creating a room after everyone has left starts a new game with that code.
+Active players receive updates and late joiners receive the current state. The same browser tab saves
+its active room and last known game state in session storage, so reloading rejoins the room and restores
+the game. This is a local recovery copy, not server-side room history; clearing tab data removes it.
+Custom codes are checked against active rooms and can be reused after everyone leaves. Creating a room
+after everyone has left starts a new game with that code.
 
 The browser uses the Supabase public key, which is public by design. Never put a `service_role` or
 `sb_secret_` key in

@@ -5,6 +5,7 @@ import { online, createRoom, joinRoom } from "./net.js";
 const EMPTY = { seq: 0, topic: null, holder: null, q: null, hand: [], used: [] };
 const HUES = ["#ff8a5b", "#5b8cff", "#a77bff", "#ff6f91", "#1f9d8f", "#e8b53a", "#4fc36b", "#e0607e"];
 const WORDS = ["fox", "owl", "bee", "elk", "cat", "yak", "emu", "ant"];
+const ACTIVE_ROOM_KEY = "tc-active-room";
 const CODE_CHARS = "23456789abcdefghjkmnpqrstuvwxyz";
 const rnd = (a) => a[Math.floor(Math.random() * a.length)];
 const newRoomCode = () => rnd(WORDS) + "-" + Array.from(crypto.getRandomValues(new Uint8Array(8)), (n) => CODE_CHARS[n % CODE_CHARS.length]).join("");
@@ -14,6 +15,26 @@ const compareGame = (a, b) => (a.seq || 0) - (b.seq || 0)
   || String(a.actor || "").localeCompare(String(b.actor || ""));
 const pos = (i, n) => { const a = ((-90 + (i * 360) / n) * Math.PI) / 180; return { x: 50 + 37 * Math.cos(a), y: 50 + 37 * Math.sin(a) }; };
 const uid = () => { let v = sessionStorage.getItem("uid"); if (!v) { v = Math.random().toString(36).slice(2, 10); sessionStorage.setItem("uid", v); } return v; };
+const readActiveRoom = () => {
+  const saved = sessionStorage.getItem(ACTIVE_ROOM_KEY);
+  if (!saved) return null;
+  try {
+    const session = JSON.parse(saved);
+    if (
+      typeof session.code === "string"
+      && typeof session.name === "string"
+      && session.game
+      && Number.isFinite(session.game.seq)
+      && Array.isArray(session.game.hand)
+      && Array.isArray(session.game.used)
+    ) return session;
+  } catch (error) {
+    console.warn("Could not restore the saved room session.", error);
+  }
+  console.warn("The saved room session is invalid and will be cleared.");
+  sessionStorage.removeItem(ACTIVE_ROOM_KEY);
+  return null;
+};
 let ac, MUTE = false;
 const beep = (f, d) => { if (MUTE) return; try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); const o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = f; g.gain.setValueAtTime(0.15, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + d); o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + d); } catch {} };
 const draw = (t, used) => { const n = questionsFor(t).length; let c = [...Array(n).keys()].filter((i) => !used.includes(t * 1000 + i)); if (c.length < 4) c = [...Array(n).keys()]; return c.sort(() => Math.random() - 0.5).slice(0, 4); };
@@ -126,31 +147,50 @@ export default function App() {
       net.current?.track({ ...me.current, g: nextGame });
     }
   };
-  const start = (kind, c, creator = false) => {
-    const nick = (name.trim() || "Guest " + (10 + Math.floor(Math.random() * 90))).slice(0, 12);
-    localStorage.setItem("tc-name", nick); me.current = { id: uid(), name: nick, j: Date.now(), creator };
-    hasJoinedRoom.current = creator;
-    const initial = { ...EMPTY, holder: me.current.id, seq: creator ? 1 : 0, updatedAt: creator ? Date.now() : 0, actor: creator ? me.current.id : "" };
+  const start = (kind, c, creator = false, resume = null) => {
+    const nick = (resume?.name || name.trim() || "Guest " + (10 + Math.floor(Math.random() * 90))).slice(0, 12);
+    const joinedAt = resume?.joinedAt || Date.now();
+    localStorage.setItem("tc-name", nick); me.current = { id: uid(), name: nick, j: joinedAt, creator };
+    hasJoinedRoom.current = creator || Boolean(resume);
+    const initial = resume?.game || { ...EMPTY, holder: me.current.id, seq: creator ? 1 : 0, updatedAt: creator ? Date.now() : 0, actor: creator ? me.current.id : "" };
     Gr.current = initial; setG(initial); prev.current = { ids: [], holder: null }; setPeople([]);
     setPendingQuestion(null); setAnswererId("");
     if (kind === "room") {
       setCode(c); setMode("room"); setConnection("connecting"); setConnectionError(""); setCodeError("");
+      sessionStorage.setItem(ACTIVE_ROOM_KEY, JSON.stringify({ code: c, name: nick, joinedAt, game: initial }));
       const onStatus = (status, message) => reportRoomStatus(status, message, creator);
       try {
         net.current = creator
           ? createRoom(c, { ...me.current, creator, g: initial }, onPeers, onStatus)
-          : joinRoom(c, { ...me.current, g: initial }, onPeers, onStatus);
+          : joinRoom(c, { ...me.current, known: Boolean(resume), g: initial }, onPeers, onStatus);
       } catch (error) {
         onStatus("error", error instanceof Error ? error.message : "Could not connect to the room.");
       }
     } else {
+      sessionStorage.removeItem(ACTIVE_ROOM_KEY);
       setMode("local"); setConnection("idle"); setPeople([{ id: me.current.id, name: nick }]);
     }
     setScreen("session");
   };
+  useEffect(() => {
+    const saved = readActiveRoom();
+    const inviteCode = cleanRoomCode(new URLSearchParams(location.search).get("room") || "");
+    if (saved && (!inviteCode || inviteCode === saved.code)) start("room", saved.code, false, saved);
+  }, []);
+  useEffect(() => {
+    if (screen === "session" && mode === "room" && code) {
+      sessionStorage.setItem(ACTIVE_ROOM_KEY, JSON.stringify({
+        code,
+        name: me.current.name,
+        joinedAt: me.current.j,
+        game: G,
+      }));
+    }
+  }, [screen, mode, code, G]);
   const leave = () => {
     net.current?.leave(); net.current = null; setConnection("idle"); setConnectionError("");
     hasJoinedRoom.current = false;
+    sessionStorage.removeItem(ACTIVE_ROOM_KEY);
     setScreen("home"); setTalking(false); window.speechSynthesis?.cancel();
   };
   const reconnectRoom = async () => {

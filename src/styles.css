@@ -23,7 +23,7 @@ input{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(
 .code-entry input{min-width:min(100%,200px)}
 .field-hint{color:var(--soft);line-height:1.4}
 .form-error{color:#b54840;margin:0;line-height:1.4}
-.bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.bar{position:relative;z-index:6;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .chip{margin-left:auto;font-weight:600;letter-spacing:.08em;border:1px dashed var(--accent)}
 .chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 12px;scrollbar-width:none}
 .chip2{white-space:nowrap;padding:7px 12px;font-size:.9rem}.chip2.on{background:var(--accent);color:#fff;border-color:transparent}
