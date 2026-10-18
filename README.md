@@ -18,6 +18,8 @@ Each player publishes their name and the shared game state to Realtime Presence 
 Active players receive updates and late joiners receive the current state. The same browser tab saves
 its active room and last known game state in session storage, so reloading rejoins the room and restores
 the game. This is a local recovery copy, not server-side room history; clearing tab data removes it.
+Presence entries are reconciled consistently by every player, and a six-second disconnect grace period
+lets a reloading answerer rejoin before their turn is reassigned.
 Custom codes are checked against active rooms and can be reused after everyone leaves. Creating a room
 after everyone has left starts a new game with that code.
 

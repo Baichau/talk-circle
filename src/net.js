@@ -2,10 +2,13 @@ import { createClient } from "@supabase/supabase-js";
 const url = import.meta.env.VITE_SUPABASE_URL, key = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const online = Boolean(url && key);
 const sb = online ? createClient(url, key) : null;
+const newPresenceId = () => crypto.randomUUID
+  ? crypto.randomUUID()
+  : Array.from(crypto.getRandomValues(new Uint32Array(4)), (value) => value.toString(16).padStart(8, "0")).join("");
 
 export function createRoom(code, me, onPeers, onStatus) {
   if (!sb) throw new Error("Live rooms are not configured. Add the Supabase URL and anon key.");
-  const ch = sb.channel("talk-circle:" + code, { config: { presence: { key: me.id } } });
+  const ch = sb.channel("talk-circle:" + code, { config: { presence: { key: newPresenceId() } } });
   let active = true;
   let claimed = false;
   let checking = false;
@@ -81,10 +84,12 @@ export function createRoom(code, me, onPeers, onStatus) {
 }
 
 // Each phone publishes {id,name,j,g} as presence. g is the shared game state.
-export function joinRoom(code, me, onPeers, onStatus) {
+export function joinRoom(code, me, onPeers, onStatus, onIdentityChanged) {
   if (!sb) throw new Error("Live rooms are not configured. Add the Supabase URL and anon key.");
-  const ch = sb.channel("talk-circle:" + code, { config: { presence: { key: me.id } } });
+  const ch = sb.channel("talk-circle:" + code, { config: { presence: { key: newPresenceId() } } });
   let active = true;
+  let hasTracked = false;
+  let trackTimer;
   let waitTimer;
   let sawPeer = Boolean(me.creator || me.known);
   let latestPresence = me;
@@ -92,6 +97,7 @@ export function joinRoom(code, me, onPeers, onStatus) {
     if (!active) return;
     active = false;
     window.clearTimeout(waitTimer);
+    window.clearTimeout(trackTimer);
     return sb.removeChannel(ch);
   };
   const reportTrack = async (presence) => {
@@ -106,7 +112,25 @@ export function joinRoom(code, me, onPeers, onStatus) {
   };
   ch.on("presence", { event: "sync" }, () => {
     if (!active) return;
-    const peers = Object.values(ch.presenceState()).map((entries) => entries[entries.length - 1]);
+    const peers = Object.values(ch.presenceState()).flatMap((entries) => entries);
+    if (!hasTracked) {
+      hasTracked = true;
+      const resolveIdentityAndTrack = () => {
+        if (!active) return;
+        const currentPeers = Object.values(ch.presenceState()).flatMap((entries) => entries);
+        if (currentPeers.some((peer) => peer.id === me.id)) {
+          me.id = newPresenceId();
+          latestPresence = { ...latestPresence, id: me.id };
+          onIdentityChanged?.(me.id);
+        }
+        void reportTrack(latestPresence);
+      };
+      if (peers.some((peer) => peer.id === me.id)) {
+        trackTimer = window.setTimeout(resolveIdentityAndTrack, 1500);
+      } else {
+        resolveIdentityAndTrack();
+      }
+    }
     onPeers(peers);
     if (me.creator || sawPeer || peers.some((peer) => peer.id !== me.id)) {
       sawPeer = true;
@@ -125,9 +149,7 @@ export function joinRoom(code, me, onPeers, onStatus) {
   });
   ch.subscribe((status, error) => {
     if (!active) return;
-    if (status === "SUBSCRIBED") {
-      void reportTrack(latestPresence);
-    } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+    if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
       onStatus("error", error?.message || "Could not connect to the room. Check your connection and try again.");
     } else if (status === "CLOSED") {
       onStatus("disconnected");

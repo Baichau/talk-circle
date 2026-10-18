@@ -14,14 +14,25 @@ const compareGame = (a, b) => (a.seq || 0) - (b.seq || 0)
   || (a.updatedAt || 0) - (b.updatedAt || 0)
   || String(a.actor || "").localeCompare(String(b.actor || ""));
 const pos = (i, n) => { const a = ((-90 + (i * 360) / n) * Math.PI) / 180; return { x: 50 + 37 * Math.cos(a), y: 50 + 37 * Math.sin(a) }; };
-const uid = () => { let v = sessionStorage.getItem("uid"); if (!v) { v = Math.random().toString(36).slice(2, 10); sessionStorage.setItem("uid", v); } return v; };
+const uid = () => {
+  let value = sessionStorage.getItem("uid");
+  if (!value) {
+    value = crypto.randomUUID
+      ? crypto.randomUUID()
+      : Array.from(crypto.getRandomValues(new Uint32Array(4)), (part) => part.toString(16).padStart(8, "0")).join("");
+    sessionStorage.setItem("uid", value);
+  }
+  return value;
+};
 const readActiveRoom = () => {
   const saved = sessionStorage.getItem(ACTIVE_ROOM_KEY);
   if (!saved) return null;
   try {
     const session = JSON.parse(saved);
     if (
-      typeof session.code === "string"
+      session
+      && typeof session === "object"
+      && typeof session.code === "string"
       && typeof session.name === "string"
       && session.game
       && Number.isFinite(session.game.seq)
@@ -97,11 +108,14 @@ export default function App() {
   const [talking, setTalking] = useState(false);
   const net = useRef(null), me = useRef({}), prev = useRef({ ids: [], holder: null }), flashTimer = useRef(null);
   const hasJoinedRoom = useRef(false);
+  const peopleRef = useRef([]);
+  const holderRecoveryTimer = useRef(null);
 
   const flash = (m) => { setNote(m); window.clearTimeout(flashTimer.current); flashTimer.current = window.setTimeout(() => setNote(""), 3000); };
   const addFx = (f) => { const id = Math.random(); setFx((x) => [...x, { ...f, id }]); setTimeout(() => setFx((x) => x.filter((y) => y.id !== id)), 1800); };
   const hi = Math.max(0, people.findIndex((p) => p.id === G.holder));
-  const can = mode === "local" || (connection === "connected" && people[hi]?.id === me.current.id);
+  const can = mode === "local" || (connection === "connected" && people[hi]?.id === G.holder && people[hi]?.id === me.current.id);
+  const assignedHolder = people.find((person) => person.id === G.holder);
 
   const commit = (p) => {
     const g = { ...Gr.current, ...p, seq: Gr.current.seq + 1, updatedAt: Date.now(), actor: me.current.id };
@@ -122,7 +136,9 @@ export default function App() {
   };
   const onPeers = (list) => {
     const ps = list.filter((p) => p && p.id && p.name).sort((a, b) => a.j - b.j || (a.id < b.id ? -1 : 1));
-    setPeople(ps.map((p) => ({ id: p.id, name: String(p.name).slice(0, 12) })));
+    const participants = ps.map((p) => ({ id: p.id, name: String(p.name).slice(0, 12) }));
+    peopleRef.current = participants;
+    setPeople(participants);
     const hasPartner = ps.some((p) => p.id !== me.current.id);
     if (hasPartner) hasJoinedRoom.current = true;
     setConnection(me.current.creator || hasPartner || hasJoinedRoom.current ? "connected" : "waiting");
@@ -132,7 +148,7 @@ export default function App() {
       if (p.g && Number.isFinite(p.g.seq) && (!best || compareGame(p.g, best) > 0)) best = p.g;
     });
     let nextGame = best && compareGame(best, Gr.current) > 0 ? best : Gr.current;
-    if (ps.length && !ps.some((person) => person.id === nextGame.holder)) {
+    if (ps.length && !nextGame.holder) {
       nextGame = {
         ...nextGame,
         holder: ps[0].id,
@@ -140,6 +156,30 @@ export default function App() {
         updatedAt: Date.now(),
         actor: me.current.id,
       };
+    }
+    const holderPresent = ps.some((person) => person.id === nextGame.holder);
+    if (ps.length && nextGame.holder && !holderPresent) {
+      if (!holderRecoveryTimer.current) {
+        holderRecoveryTimer.current = window.setTimeout(() => {
+          holderRecoveryTimer.current = null;
+          const currentGame = Gr.current;
+          const currentPeople = peopleRef.current;
+          if (!currentPeople.length || currentPeople.some((person) => person.id === currentGame.holder)) return;
+          const recovered = {
+            ...currentGame,
+            holder: currentPeople[0].id,
+            seq: currentGame.seq + 1,
+            updatedAt: Date.now(),
+            actor: me.current.id,
+          };
+          Gr.current = recovered;
+          setG(recovered);
+          net.current?.track({ ...me.current, g: recovered });
+        }, 6000);
+      }
+    } else {
+      window.clearTimeout(holderRecoveryTimer.current);
+      holderRecoveryTimer.current = null;
     }
     if (compareGame(nextGame, Gr.current) > 0) { Gr.current = nextGame; setG(nextGame); }
     const mine = ps.find((p) => p.id === me.current.id);
@@ -153,6 +193,8 @@ export default function App() {
     localStorage.setItem("tc-name", nick); me.current = { id: uid(), name: nick, j: joinedAt, creator };
     hasJoinedRoom.current = creator || Boolean(resume);
     const initial = resume?.game || { ...EMPTY, holder: me.current.id, seq: creator ? 1 : 0, updatedAt: creator ? Date.now() : 0, actor: creator ? me.current.id : "" };
+    window.clearTimeout(holderRecoveryTimer.current); holderRecoveryTimer.current = null;
+    peopleRef.current = [];
     Gr.current = initial; setG(initial); prev.current = { ids: [], holder: null }; setPeople([]);
     setPendingQuestion(null); setAnswererId("");
     if (kind === "room") {
@@ -162,7 +204,10 @@ export default function App() {
       try {
         net.current = creator
           ? createRoom(c, { ...me.current, creator, g: initial }, onPeers, onStatus)
-          : joinRoom(c, { ...me.current, known: Boolean(resume), g: initial }, onPeers, onStatus);
+          : joinRoom(c, { ...me.current, known: Boolean(resume), g: initial }, onPeers, onStatus, (id) => {
+            sessionStorage.setItem("uid", id);
+            me.current = { ...me.current, id };
+          });
       } catch (error) {
         onStatus("error", error instanceof Error ? error.message : "Could not connect to the room.");
       }
@@ -189,6 +234,8 @@ export default function App() {
   }, [screen, mode, code, G]);
   const leave = () => {
     net.current?.leave(); net.current = null; setConnection("idle"); setConnectionError("");
+    window.clearTimeout(holderRecoveryTimer.current); holderRecoveryTimer.current = null;
+    peopleRef.current = [];
     hasJoinedRoom.current = false;
     sessionStorage.removeItem(ACTIVE_ROOM_KEY);
     setScreen("home"); setTalking(false); window.speechSynthesis?.cancel();
@@ -204,7 +251,17 @@ export default function App() {
       reportRoomStatus("error", error instanceof Error ? error.message : "Could not reconnect to the room.");
     }
   };
-  useEffect(() => () => net.current?.leave(), []);
+  useEffect(() => {
+    const leaveBeforeNavigation = (event) => {
+      if (!event.persisted) void net.current?.leave();
+    };
+    window.addEventListener("pagehide", leaveBeforeNavigation);
+    return () => {
+      window.removeEventListener("pagehide", leaveBeforeNavigation);
+      window.clearTimeout(holderRecoveryTimer.current);
+      net.current?.leave();
+    };
+  }, []);
 
   useEffect(() => { if (screen !== "session") return; const ids = people.map((p) => p.id), old = prev.current.ids;
     if (old.length) ids.forEach((id, i) => { if (!old.includes(id) && id !== me.current.id) { addFx({ kind: "wave", a: i }); beep(660, 0.5); setTimeout(() => beep(880, 0.4), 120); } });
@@ -301,7 +358,7 @@ export default function App() {
         <p className="hint">Connecting to the room…</p>
       </div> : <>
         <Ring people={people} hi={hi} meId={me.current.id} fx={fx} topic={topic} />
-        <p className="hint">{mode === "room" && connection === "waiting" ? "Waiting for someone to join this room…" : G.q ? (holder?.id === me.current.id ? "Your question to answer." : (holder?.name || "Your partner") + " is answering.") : mode === "local" ? (holder?.id === me.current.id ? "Your turn" : holder?.name + "'s turn") + (topic ? ". Pick a question." : ". Pick a topic.") : can ? (topic ? "Your turn. Pick a question." : "Your turn. Pick a topic.") : (holder?.name || "Your partner") + " is choosing…"}</p>
+        <p className="hint">{mode === "room" && connection === "waiting" ? "Waiting for someone to join this room…" : G.q ? !assignedHolder ? "Waiting for the assigned player to reconnect…" : (G.holder === me.current.id ? "Your question to answer." : assignedHolder.name + " is answering.") : mode === "local" ? (holder?.id === me.current.id ? "Your turn" : holder?.name + "'s turn") + (topic ? ". Pick a question." : ". Pick a topic.") : can ? (topic ? "Your turn. Pick a question." : "Your turn. Pick a topic.") : (holder?.name || "Your partner") + " is choosing…"}</p>
         {mode === "local" && <div className="join" style={{ maxWidth: 440, margin: "0 auto 14px" }}>
           <input value={nm} onChange={(e) => setNm(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addPerson()} placeholder="Add a person" maxLength={12} />
           <button className="btn main" onClick={addPerson}>Add</button></div>}
@@ -314,7 +371,7 @@ export default function App() {
             <div className="hand">{G.hand.map((i) => qs[i] && <button key={i} className="card" disabled={!can} onClick={() => pick(i)}>{qs[i]}</button>)}</div>
           </section>)}
         {curQ && <div className="sheet"><div className="q">
-          <small>{TOPICS[G.q.t]?.name} · {holder?.name || "Next speaker"} answers · everyone can see</small>
+          <small>{TOPICS[G.q.t]?.name} · {assignedHolder?.name || "Next speaker"} answers · everyone can see</small>
           <p>{curQ}</p>
           <div className="row">
             <button className={"btn" + (talking ? " speaking" : "")} onClick={() => speak(curQ)}><span className="eq"><i /><i /><i /></span> Listen</button>
