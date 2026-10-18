@@ -33,4 +33,6 @@ code from another; both should show the same topic, question, and turn.
 
 ## Your questions
 Topics, category names, colors, and emojis are in `src/topics.json` (10 categories x 20 topics).
-Question templates and optional custom questions are in `src/topics.js`.
+All questions are in `src/questions.json`, organized as arrays keyed by the exact topic names in
+`src/topics.json`. Edit a topic's array to change its questions; each question is loaded directly
+from this file, with no question generation in the app.
