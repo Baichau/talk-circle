@@ -1,0 +1,62 @@
+[
+  {
+    "name": "Travel & places",
+    "emoji": "🧳",
+    "hue": 18,
+    "topics": ["Travel", "Airports", "Road trips", "Hotels", "Beaches", "Mountains", "Big cities", "Small towns", "Souvenirs", "Tourists", "Camping", "Cruises", "Backpacking", "Language barriers", "Passports", "Home country", "Moving abroad", "Public transport", "Museums", "Hidden gems"]
+  },
+  {
+    "name": "Food & drink",
+    "emoji": "🍜",
+    "hue": 42,
+    "topics": ["Cooking", "Street food", "Breakfast", "Restaurants", "Desserts", "Coffee", "Tea", "Fast food", "Vegetarian diets", "Family recipes", "Spicy food", "Picnics", "Bread", "Cheese", "Wine", "Food delivery", "Grocery shopping", "Cooking shows", "Table manners", "Birthday cakes"]
+  },
+  {
+    "name": "Technology",
+    "emoji": "📱",
+    "hue": 220,
+    "topics": ["Smartphones", "Social media", "Video games", "Artificial intelligence", "Passwords", "Online shopping", "Streaming", "Robots", "Smart homes", "Electric cars", "Video calls", "Cybersecurity", "Podcasts", "E-books", "Space travel", "Drones", "Cryptocurrency", "Memes", "Screen time", "Old gadgets"]
+  },
+  {
+    "name": "People & relationships",
+    "emoji": "🫶",
+    "hue": 340,
+    "topics": ["Friendship", "Family", "Siblings", "Grandparents", "Neighbors", "First dates", "Marriage", "Trust", "Jealousy", "Loneliness", "Teamwork", "Gifts", "Apologies", "Role models", "Manners", "Gossip", "Roommates", "Pets as family", "Weddings", "Saying no"]
+  },
+  {
+    "name": "Work & study",
+    "emoji": "💼",
+    "hue": 200,
+    "topics": ["Dream jobs", "Job interviews", "Bosses", "Remote work", "Money", "Saving money", "Learning languages", "Exams", "University", "Homework", "Teachers", "Public speaking", "Deadlines", "Side projects", "Retirement", "Volunteering", "Starting a business", "Mistakes at work", "Libraries", "Mentors"]
+  },
+  {
+    "name": "Health & mind",
+    "emoji": "🧘",
+    "hue": 160,
+    "topics": ["Sleep", "Exercise", "Stress", "Meditation", "Happiness", "Confidence", "Fear", "Habits", "Doctors", "Healthy eating", "Morning routines", "Procrastination", "Memory", "Laughter", "Burnout", "Walking", "Hobbies", "Self-care", "Patience", "Courage"]
+  },
+  {
+    "name": "Culture & arts",
+    "emoji": "🎭",
+    "hue": 280,
+    "topics": ["Movies", "Music", "Concerts", "Books", "Poetry", "Painting", "Theater", "Dance", "Photography", "Fashion", "Comedy", "Folk traditions", "Festivals", "Holidays", "Street art", "Architecture", "Slang", "Superheroes", "TV series", "Fairy tales"]
+  },
+  {
+    "name": "Nature & science",
+    "emoji": "🌿",
+    "hue": 125,
+    "topics": ["Weather", "Seasons", "Forests", "Rivers", "Oceans", "Pets", "Wild animals", "Gardening", "Climate change", "Recycling", "Stars and planets", "Volcanoes", "Dinosaurs", "Inventions", "Medicine", "Energy", "Birds", "Insects", "Rain", "Snow"]
+  },
+  {
+    "name": "Society & ideas",
+    "emoji": "⚖️",
+    "hue": 250,
+    "topics": ["Freedom", "Justice", "Fairness", "Traditions", "Education systems", "Social rules", "Fame", "Luck", "Success", "Failure", "Time", "Privacy", "Advertising", "News", "Public holidays", "Rules and laws", "Charity", "Equality", "Cities of the future", "Generation gaps"]
+  },
+  {
+    "name": "Daily life & fun",
+    "emoji": "🎲",
+    "hue": 60,
+    "topics": ["Weekends", "Birthdays", "Sports", "Football", "Board games", "Shopping", "Cleaning", "Traffic", "Mornings", "Rainy days", "Collections", "Dreams", "Childhood", "Superstitions", "Secrets", "Jokes", "Parties", "Bicycles", "Lost things", "Weird habits"]
+  }
+]
