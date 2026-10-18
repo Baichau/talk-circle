@@ -272,6 +272,7 @@ export default function App() {
   useEffect(() => { document.documentElement.style.setProperty("--hue", G.topic != null && TOPICS[G.topic] ? TOPICS[G.topic].h : 172); }, [G.topic, screen]);
 
   const chooseTopic = (t) => can && !G.q && commit({ topic: t, q: null, hand: draw(t, G.used) });
+  const changeTopic = () => can && !G.q && commit({ topic: null, q: null, hand: [] });
   const pick = (i) => {
     if (!can || G.q || G.topic == null) return;
     const nextPerson = people.length > 1 ? people[(hi + 1) % people.length] : people[hi];
@@ -365,7 +366,7 @@ export default function App() {
         {!topic ? (can && !G.q ? <Picker onPick={chooseTopic} /> : null) : !G.q && (
           <section>
             <div className="row" style={{ justifyContent: "center", marginBottom: 12 }}>
-              {can && !G.q && <button className="btn" onClick={() => commit({ topic: null, hand: [] })}>Change topic</button>}
+              {can && !G.q && <button className="btn" onClick={changeTopic}>Choose a different topic</button>}
               {can && <button className="btn" onClick={() => commit({ hand: draw(G.topic, G.used) })}>Shuffle</button>}
             </div>
             <div className="hand">{G.hand.map((i) => qs[i] && <button key={i} className="card" disabled={!can} onClick={() => pick(i)}>{qs[i]}</button>)}</div>
