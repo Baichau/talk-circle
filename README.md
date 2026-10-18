@@ -1,7 +1,8 @@
 # Talk Circle
 
 React + Vite app for an English speaking club. Create or join a room, pick any of 200 topics (searchable),
-pick a question, everyone sees it, one person answers, then pass the turn around the circle.
+choose a question and who answers it. The question is shown to everyone; after answering, that person
+chooses any topic, question, and next speaker.
 
 ## Run locally
     npm install

@@ -9,6 +9,7 @@ export function createRoom(code, me, onPeers, onStatus) {
   let active = true;
   let claimed = false;
   let checking = false;
+  let latestPresence = me;
   const leave = () => {
     if (!active) return;
     active = false;
@@ -40,6 +41,17 @@ export function createRoom(code, me, onPeers, onStatus) {
       await leave();
     }
   };
+  const syncLatest = async () => {
+    if (!active || !claimed) return;
+    try {
+      const status = await ch.track(latestPresence);
+      if (!active) return;
+      if (status === "ok") onStatus("connected");
+      else onStatus("syncing", "Room sync is taking longer than expected. Reconnecting…");
+    } catch (error) {
+      if (active) onStatus("syncing", error instanceof Error ? error.message : "Room sync is taking longer than expected. Reconnecting…");
+    }
+  };
   ch.on("presence", { event: "sync" }, () => {
     if (!active) return;
     const peers = Object.values(ch.presenceState()).flatMap((entries) => entries);
@@ -51,20 +63,18 @@ export function createRoom(code, me, onPeers, onStatus) {
   });
   ch.subscribe((status, error) => {
     if (!active) return;
-    if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+    if (status === "SUBSCRIBED" && claimed) {
+      void syncLatest();
+    } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
       onStatus("error", error?.message || "Could not connect to the room. Check your connection and try again.");
     } else if (status === "CLOSED") {
       onStatus("disconnected");
     }
   });
   return {
-    track: async (presence) => {
-      try {
-        const status = await ch.track(presence);
-        if (active && status !== "ok") onStatus("error", "Room sync failed (" + status + "). Check your connection and try again.");
-      } catch (error) {
-        if (active) onStatus("error", error instanceof Error ? error.message : "Could not sync the room.");
-      }
+    track: (presence) => {
+      latestPresence = presence;
+      void syncLatest();
     },
     leave,
   };
@@ -76,7 +86,8 @@ export function joinRoom(code, me, onPeers, onStatus) {
   const ch = sb.channel("talk-circle:" + code, { config: { presence: { key: me.id } } });
   let active = true;
   let waitTimer;
-  let sawPeer = false;
+  let sawPeer = Boolean(me.creator || me.known);
+  let latestPresence = me;
   const leave = () => {
     if (!active) return;
     active = false;
@@ -86,16 +97,18 @@ export function joinRoom(code, me, onPeers, onStatus) {
   const reportTrack = async (presence) => {
     try {
       const status = await ch.track(presence);
-      if (active && status !== "ok") onStatus("error", "Room sync failed (" + status + "). Check your connection and try again.");
+      if (!active) return;
+      if (status === "ok") onStatus("connected");
+      else onStatus("syncing", "Room sync is taking longer than expected. Reconnecting…");
     } catch (error) {
-      if (active) onStatus("error", error instanceof Error ? error.message : "Could not sync the room.");
+      if (active) onStatus("syncing", error instanceof Error ? error.message : "Room sync is taking longer than expected. Reconnecting…");
     }
   };
   ch.on("presence", { event: "sync" }, () => {
     if (!active) return;
     const peers = Object.values(ch.presenceState()).map((entries) => entries[entries.length - 1]);
     onPeers(peers);
-    if (me.creator || peers.some((peer) => peer.id !== me.id)) {
+    if (me.creator || sawPeer || peers.some((peer) => peer.id !== me.id)) {
       sawPeer = true;
       window.clearTimeout(waitTimer);
       onStatus("connected");
@@ -113,7 +126,7 @@ export function joinRoom(code, me, onPeers, onStatus) {
   ch.subscribe((status, error) => {
     if (!active) return;
     if (status === "SUBSCRIBED") {
-      void reportTrack(me);
+      void reportTrack(latestPresence);
     } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
       onStatus("error", error?.message || "Could not connect to the room. Check your connection and try again.");
     } else if (status === "CLOSED") {
@@ -121,7 +134,7 @@ export function joinRoom(code, me, onPeers, onStatus) {
     }
   });
   return {
-    track: (presence) => { void reportTrack(presence); },
+    track: (presence) => { latestPresence = presence; void reportTrack(presence); },
     leave,
   };
 }

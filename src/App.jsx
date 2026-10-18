@@ -71,9 +71,11 @@ export default function App() {
   const [G, setG] = useState(EMPTY), Gr = useRef(EMPTY);
   const [people, setPeople] = useState([]), [fx, setFx] = useState([]);
   const [muted, setMuted] = useState(false), [note, setNote] = useState(""), [nm, setNm] = useState("");
+  const [pendingQuestion, setPendingQuestion] = useState(null), [answererId, setAnswererId] = useState("");
   const [connection, setConnection] = useState("idle"), [connectionError, setConnectionError] = useState("");
   const [talking, setTalking] = useState(false);
   const net = useRef(null), me = useRef({}), prev = useRef({ ids: [], holder: null }), flashTimer = useRef(null);
+  const hasJoinedRoom = useRef(false);
 
   const flash = (m) => { setNote(m); window.clearTimeout(flashTimer.current); flashTimer.current = window.setTimeout(() => setNote(""), 3000); };
   const addFx = (f) => { const id = Math.random(); setFx((x) => [...x, { ...f, id }]); setTimeout(() => setFx((x) => x.filter((y) => y.id !== id)), 1800); };
@@ -84,45 +86,56 @@ export default function App() {
     const g = { ...Gr.current, ...p, seq: Gr.current.seq + 1, updatedAt: Date.now(), actor: me.current.id };
     Gr.current = g; setG(g); net.current?.track({ ...me.current, g });
   };
+  const reportRoomStatus = (status, message, creating = false) => {
+    if (status === "connected") hasJoinedRoom.current = true;
+    setConnection(status);
+    if (status === "error" && creating) {
+      setCodeError(message || "Could not create the room.");
+      setConnection("idle");
+      setScreen("home");
+    } else if (status === "error") {
+      setConnectionError(message || "Could not connect to the room.");
+    } else if (status === "connected") {
+      setConnectionError("");
+    }
+  };
   const onPeers = (list) => {
     const ps = list.filter((p) => p && p.id && p.name).sort((a, b) => a.j - b.j || (a.id < b.id ? -1 : 1));
     setPeople(ps.map((p) => ({ id: p.id, name: String(p.name).slice(0, 12) })));
-    setConnection(me.current.creator || ps.some((p) => p.id !== me.current.id) ? "connected" : "waiting");
+    const hasPartner = ps.some((p) => p.id !== me.current.id);
+    if (hasPartner) hasJoinedRoom.current = true;
+    setConnection(me.current.creator || hasPartner || hasJoinedRoom.current ? "connected" : "waiting");
     setConnectionError("");
     let best = null;
     ps.forEach((p) => {
       if (p.g && Number.isFinite(p.g.seq) && (!best || compareGame(p.g, best) > 0)) best = p.g;
     });
-    if (best && compareGame(best, Gr.current) > 0) { Gr.current = best; setG(best); }
-    else if (!best && ps.length && !Gr.current.holder) {
-      const initial = { ...Gr.current, holder: ps[0].id };
-      Gr.current = initial; setG(initial);
+    let nextGame = best && compareGame(best, Gr.current) > 0 ? best : Gr.current;
+    if (ps.length && !ps.some((person) => person.id === nextGame.holder)) {
+      nextGame = {
+        ...nextGame,
+        holder: ps[0].id,
+        seq: nextGame.seq + 1,
+        updatedAt: Date.now(),
+        actor: me.current.id,
+      };
     }
+    if (compareGame(nextGame, Gr.current) > 0) { Gr.current = nextGame; setG(nextGame); }
     const mine = ps.find((p) => p.id === me.current.id);
-    if (best && mine && (!mine.g || !Number.isFinite(mine.g.seq) || compareGame(best, mine.g) > 0)) {
-      net.current?.track({ ...me.current, g: best });
+    if (nextGame && mine && (!mine.g || !Number.isFinite(mine.g.seq) || compareGame(nextGame, mine.g) > 0)) {
+      net.current?.track({ ...me.current, g: nextGame });
     }
   };
   const start = (kind, c, creator = false) => {
     const nick = (name.trim() || "Guest " + (10 + Math.floor(Math.random() * 90))).slice(0, 12);
     localStorage.setItem("tc-name", nick); me.current = { id: uid(), name: nick, j: Date.now(), creator };
+    hasJoinedRoom.current = creator;
     const initial = { ...EMPTY, holder: me.current.id, seq: creator ? 1 : 0, updatedAt: creator ? Date.now() : 0, actor: creator ? me.current.id : "" };
     Gr.current = initial; setG(initial); prev.current = { ids: [], holder: null }; setPeople([]);
+    setPendingQuestion(null); setAnswererId("");
     if (kind === "room") {
       setCode(c); setMode("room"); setConnection("connecting"); setConnectionError(""); setCodeError("");
-      const onStatus = (status, message) => {
-        setConnection(status);
-        if (status === "error" && creator) {
-          setCodeError(message || "Could not create the room.");
-          setConnection("idle");
-          setScreen("home");
-        } else if (status === "error") {
-          setConnectionError(message || "Could not connect to the room.");
-          flash(message || "Could not connect to the room.");
-        } else if (status === "connected") {
-          setConnectionError("");
-        }
-      };
+      const onStatus = (status, message) => reportRoomStatus(status, message, creator);
       try {
         net.current = creator
           ? createRoom(c, { ...me.current, creator, g: initial }, onPeers, onStatus)
@@ -137,7 +150,19 @@ export default function App() {
   };
   const leave = () => {
     net.current?.leave(); net.current = null; setConnection("idle"); setConnectionError("");
+    hasJoinedRoom.current = false;
     setScreen("home"); setTalking(false); window.speechSynthesis?.cancel();
+  };
+  const reconnectRoom = async () => {
+    const previous = net.current;
+    net.current = null;
+    setConnection("connecting"); setConnectionError("");
+    try {
+      await previous?.leave();
+      net.current = joinRoom(code, { ...me.current, known: hasJoinedRoom.current, g: Gr.current }, onPeers, reportRoomStatus);
+    } catch (error) {
+      reportRoomStatus("error", error instanceof Error ? error.message : "Could not reconnect to the room.");
+    }
   };
   useEffect(() => () => net.current?.leave(), []);
 
@@ -149,10 +174,31 @@ export default function App() {
     prev.current.holder = hid; }, [G.holder, people]);
   useEffect(() => { document.documentElement.style.setProperty("--hue", G.topic != null && TOPICS[G.topic] ? TOPICS[G.topic].h : 172); }, [G.topic, screen]);
 
-  const chooseTopic = (t) => commit({ topic: t, q: null, hand: draw(t, G.used) });
-  const pick = (i) => can && commit({ q: { t: G.topic, i }, used: [...G.used, G.topic * 1000 + i].slice(-200) });
-  const pass = () => { if (!can) return; window.speechSynthesis?.cancel(); setTalking(false); const nx = people[(hi + 1) % people.length];
-    commit({ holder: nx.id, q: null, hand: G.topic != null ? draw(G.topic, G.used) : [] }); };
+  const chooseTopic = (t) => can && !G.q && commit({ topic: t, q: null, hand: draw(t, G.used) });
+  const pick = (i) => {
+    if (!can || G.q || G.topic == null) return;
+    const nextPerson = people.length > 1 ? people[(hi + 1) % people.length] : people[hi];
+    setPendingQuestion({ t: G.topic, i });
+    setAnswererId(nextPerson?.id || me.current.id);
+  };
+  const askQuestion = () => {
+    if (!can || !pendingQuestion || !people.some((person) => person.id === answererId)) return;
+    const questionKey = pendingQuestion.t * 1000 + pendingQuestion.i;
+    commit({
+      q: pendingQuestion,
+      holder: answererId,
+      topic: pendingQuestion.t,
+      used: [...new Set([...G.used, questionKey])].slice(-200),
+    });
+    setPendingQuestion(null);
+    setAnswererId("");
+  };
+  const finishAnswer = () => {
+    if (!can || !G.q) return;
+    window.speechSynthesis?.cancel();
+    setTalking(false);
+    commit({ q: null, topic: null, hand: [] });
+  };
   const speak = (text) => { const s = window.speechSynthesis; if (!s) return; s.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = "en-US"; u.rate = 0.9; u.onend = u.onerror = () => setTalking(false); setTalking(true); s.speak(u); };
   const addPerson = () => { const v = nm.trim().slice(0, 12); if (!v || people.length >= 8) return; setPeople([...people, { id: "l" + people.length + v, name: v }]); setNm(""); };
   const toggleMute = () => { MUTE = !MUTE; setMuted(MUTE); };
@@ -170,7 +216,7 @@ export default function App() {
     <main>
       <div className="blob b1" /><div className="blob b2" />
       <h1 className="big"><svg className="brand-mark" aria-hidden="true" viewBox="0 0 40 40"><path d="M7 8.5A5.5 5.5 0 0 1 12.5 3h15A5.5 5.5 0 0 1 33 8.5v13a5.5 5.5 0 0 1-5.5 5.5H18l-8.5 7v-9.5A5.5 5.5 0 0 1 7 19.5z" /><path d="M14 14h12M14 20h8" /></svg>Talk Circle</h1>
-      <p className="lead">Pick a topic, pick a question, pass the turn. Everyone sees it, one person answers.</p>
+      <p className="lead">Pick a topic and question, choose who answers, then let them pick and pass the next turn.</p>
       <input className="wide" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" aria-label="Your name" maxLength={12} autoComplete="off" />
       <div className="panel">
         <b>Create a room</b>
@@ -194,6 +240,7 @@ export default function App() {
 
   const topic = G.topic != null ? TOPICS[G.topic] : null, qs = topic ? questionsFor(G.topic) : [];
   const curQ = G.q ? questionsFor(G.q.t)[G.q.i] : null, holder = people[hi];
+  const pendingText = pendingQuestion ? questionsFor(pendingQuestion.t)[pendingQuestion.i] : null;
   return (
     <main>
       <div className="blob b1" /><div className="blob b2" />
@@ -201,39 +248,55 @@ export default function App() {
         <button className="btn" onClick={leave}>Leave</button>
         <button className="btn" onClick={toggleMute}>{muted ? "Sound off" : "Sound on"}</button>
         {mode === "room" && <button className="chip" title="Copy invite link" onClick={copyInvite}>{code.toUpperCase()}</button>}
+        {mode === "room" && !G.q && ["syncing", "disconnected", "error"].includes(connection) && <button className="btn" onClick={reconnectRoom}>Reconnect</button>}
       </div>
       {mode === "room" && <p className={"connection " + connection} role="status">
-        {connection === "connected" ? "Live room connected" : connection === "error" ? connectionError : connection === "disconnected" ? "Connection closed. Rejoin the room to continue." : connection === "waiting" ? "Waiting for someone in this room…" : "Connecting to the live room…"}
+        {connection === "connected" ? "Live room connected" : connection === "syncing" ? "Reconnecting and syncing the latest question…" : connection === "error" ? connectionError : connection === "disconnected" ? "Connection closed. Rejoin the room to continue." : connection === "waiting" ? "Waiting for someone in this room…" : "Connecting to the live room…"}
       </p>}
       {connection === "error" && mode === "room" ? <div className="empty-room">
         <p className="hint">{connectionError || "Could not connect to the room."}</p>
+        <button className="btn main" onClick={reconnectRoom}>Reconnect</button>
         <button className="btn" onClick={leave}>Back to rooms</button>
       </div> : !people.length ? <div className="empty-room">
         <p className="hint">Connecting to the room…</p>
       </div> : <>
         <Ring people={people} hi={hi} meId={me.current.id} fx={fx} topic={topic} />
-        <p className="hint">{mode === "room" && connection === "waiting" ? "Waiting for someone to join this room…" : mode === "local" ? (holder.id === me.current.id ? "Your turn" : holder.name + "'s turn") + (topic ? ". Pick a question." : ". Pick a topic.") : can ? (topic ? "Your turn. Pick a question." : "Your turn. Pick a topic.") : holder.name + " is choosing…"}</p>
+        <p className="hint">{mode === "room" && connection === "waiting" ? "Waiting for someone to join this room…" : G.q ? (holder?.id === me.current.id ? "Your question to answer." : (holder?.name || "Your partner") + " is answering.") : mode === "local" ? (holder?.id === me.current.id ? "Your turn" : holder?.name + "'s turn") + (topic ? ". Pick a question." : ". Pick a topic.") : can ? (topic ? "Your turn. Pick a question." : "Your turn. Pick a topic.") : (holder?.name || "Your partner") + " is choosing…"}</p>
         {mode === "local" && <div className="join" style={{ maxWidth: 440, margin: "0 auto 14px" }}>
           <input value={nm} onChange={(e) => setNm(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addPerson()} placeholder="Add a person" maxLength={12} />
           <button className="btn main" onClick={addPerson}>Add</button></div>}
-        {!topic ? (can ? <Picker onPick={chooseTopic} /> : null) : (
+        {!topic ? (can && !G.q ? <Picker onPick={chooseTopic} /> : null) : !G.q && (
           <section>
             <div className="row" style={{ justifyContent: "center", marginBottom: 12 }}>
-              {can && <button className="btn" onClick={() => commit({ topic: null, q: null, hand: [] })}>Change topic</button>}
+              {can && !G.q && <button className="btn" onClick={() => commit({ topic: null, hand: [] })}>Change topic</button>}
               {can && <button className="btn" onClick={() => commit({ hand: draw(G.topic, G.used) })}>Shuffle</button>}
             </div>
             <div className="hand">{G.hand.map((i) => qs[i] && <button key={i} className="card" disabled={!can} onClick={() => pick(i)}>{qs[i]}</button>)}</div>
           </section>)}
         {curQ && <div className="sheet"><div className="q">
-          <small>{TOPICS[G.q.t]?.name} · {holder.name} answers</small>
+          <small>{TOPICS[G.q.t]?.name} · {holder?.name || "Next speaker"} answers · everyone can see</small>
           <p>{curQ}</p>
           <div className="row">
             <button className={"btn" + (talking ? " speaking" : "")} onClick={() => speak(curQ)}><span className="eq"><i /><i /><i /></span> Listen</button>
-            {can && <button className="btn" onClick={() => commit({ q: null, used: G.used.filter((id) => id !== G.q.t * 1000 + G.q.i) })}>Put back</button>}
-            {can && <button className="btn main" onClick={pass}>Pass to {people[(hi + 1) % people.length].name}</button>}
+            {can && <button className="btn main" onClick={finishAnswer}>I’ve answered — choose next question</button>}
+            {mode === "room" && ["syncing", "disconnected", "error"].includes(connection) && <button className="btn" onClick={reconnectRoom}>Reconnect</button>}
           </div>
         </div></div>}
       </>}
+      {pendingQuestion && pendingText && <div className="sheet"><div className="q handoff" role="dialog" aria-modal="true" aria-labelledby="handoff-title">
+        <small id="handoff-title">{TOPICS[pendingQuestion.t]?.name} · choose who answers</small>
+        <p>{pendingText}</p>
+        <div className="recipients" role="group" aria-label="Choose who answers this question">
+          {people.map((person) => <button key={person.id} className={"recipient" + (answererId === person.id ? " selected" : "")} aria-pressed={answererId === person.id} onClick={() => setAnswererId(person.id)}>
+            <span className="recipient-avatar">{(person.name[0] || "?").toUpperCase()}</span>
+            <span>{person.id === me.current.id ? person.name + " (you)" : person.name}</span>
+          </button>)}
+        </div>
+        <div className="row">
+          <button className="btn" onClick={() => { setPendingQuestion(null); setAnswererId(""); }}>Cancel</button>
+          <button className="btn main" disabled={!people.some((person) => person.id === answererId)} onClick={askQuestion}>Show question to everyone</button>
+        </div>
+      </div></div>}
       <div className={"toast" + (note ? " show" : "")}>{note}</div>
     </main>
   );

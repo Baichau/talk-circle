@@ -59,6 +59,12 @@ input{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(
 .sheet{position:fixed;inset:0;z-index:5;display:grid;place-items:center;padding:20px;background:#0008;backdrop-filter:blur(6px);animation:fade .3s}
 @keyframes fade{from{opacity:0}}
 .q{width:min(100%,460px);background:var(--bg);border-radius:36px 36px 36px 10px;padding:26px;border:1px solid var(--line);box-shadow:0 30px 80px -20px #000a;animation:flip .6s cubic-bezier(.2,1.2,.4,1)}
+.handoff{max-height:min(90vh,760px);overflow-y:auto}
+.recipients{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:0 0 18px}
+.recipient{display:flex;align-items:center;gap:9px;min-width:0;padding:9px 12px;border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.recipient.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.recipient-avatar{display:grid;place-items:center;flex:0 0 34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;font-weight:800}
+.recipient>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @keyframes flip{from{transform:perspective(800px) rotateY(-80deg) scale(.8);opacity:0}}
 .q small{color:var(--accent);font-weight:600}.q p{font-size:1.5rem;line-height:1.25;font-weight:600;margin:10px 0 22px}
 .eq i{display:inline-block;width:4px;height:12px;margin:0 1px;border-radius:2px;background:currentColor}
